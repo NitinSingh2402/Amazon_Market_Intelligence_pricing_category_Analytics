@@ -1,0 +1,137 @@
+from google.colab import files
+import io
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+
+print("📂 Please upload your Amazon_Raw_Dataset file:")
+uploaded = files.upload()
+
+file_name = list(uploaded.keys())[0]
+
+# Detect file type
+if file_name.endswith('.csv'):
+    df = pd.read_csv(io.BytesIO(uploaded[file_name]))
+elif file_name.endswith('.xlsx'):
+    df = pd.read_excel(io.BytesIO(uploaded[file_name]))
+else:
+    raise ValueError("❌ Unsupported file format! Please upload CSV or Excel.")
+
+print("✅ File uploaded successfully!")
+print("📊 Dataset Shape:", df.shape)
+
+
+def amazon_analysis(df):
+
+    print("\n=== PROFESSIONAL AMAZON PRODUCT ANALYSIS ===")
+
+    df_clean = df.copy()
+
+    # Drop unnecessary columns
+    df_clean.drop(columns=['Uniq Id','Product Name'], inplace=True, errors='ignore')
+
+    # Check required columns
+    if 'Main_Category' not in df_clean.columns or 'Selling_Price' not in df_clean.columns:
+        print("❌ Required columns missing!")
+        return
+
+    # Clean Category
+    df_clean['Main_Category'] = df_clean['Main_Category'].astype(str).str.strip()
+    df_clean = df_clean[df_clean['Main_Category'] != 'Unknown']
+
+    # Clean Selling Price
+    df_clean['Selling_Price'] = pd.to_numeric(
+        df_clean['Selling_Price'].astype(str).str.replace(r'[$,₹USD ]', '', regex=True),
+        errors='coerce'
+    )
+
+    df_clean.dropna(subset=['Selling_Price'], inplace=True)
+    df_clean = df_clean[df_clean['Selling_Price'] > 0]
+
+    print("🧹 Data Cleaning Completed!")
+    print("Cleaned Dataset Shape:", df_clean.shape)
+
+    # Analysis
+    price_analysis = df_clean.groupby('Main_Category')['Selling_Price'].agg(
+        Avg_Price='mean',
+        Median_Price='median',
+        Product_Count='count'
+    ).round(2)
+
+    price_analysis = price_analysis[price_analysis['Product_Count'] >= 10]
+    price_analysis.sort_values('Avg_Price', ascending=False, inplace=True)
+
+    top_cats = df_clean['Main_Category'].value_counts().nlargest(8).index
+    plot_data = df_clean[df_clean['Main_Category'].isin(top_cats)]
+
+    # Visualization
+    plt.figure(figsize=(16,12))
+    sns.set_style("whitegrid")
+
+    # BOX PLOT
+    plt.subplot(2,2,1)
+    cat_order = plot_data.groupby('Main_Category')['Selling_Price'].median().sort_values(ascending=False).index
+
+    sns.boxplot(data=plot_data,
+                x='Main_Category',
+                y='Selling_Price',
+                order=cat_order,
+                palette='viridis')
+
+    price_limit = plot_data['Selling_Price'].quantile(0.95)
+    plt.ylim(0, price_limit)
+
+    plt.title('Price Distribution by Category')
+    plt.xticks(rotation=45)
+
+    # PIE CHART
+    plt.subplot(2,2,2)
+    category_share = df_clean['Main_Category'].value_counts().nlargest(8)
+
+    plt.pie(category_share.values,
+            labels=category_share.index,
+            autopct='%1.1f%%',
+            startangle=90)
+
+    plt.title('Market Share by Category')
+
+    # SCATTER
+    plt.subplot(2,2,3)
+
+    scatter = plt.scatter(price_analysis['Product_Count'],
+                          price_analysis['Avg_Price'],
+                          c=price_analysis['Avg_Price'],
+                          cmap='viridis',
+                          alpha=0.8)
+
+    plt.colorbar(scatter)
+
+    plt.xlabel('Number of Products')
+    plt.ylabel('Average Price')
+
+    plt.title('Competitiveness vs Price Premium')
+
+    # BAR CHART
+    plt.subplot(2,2,4)
+
+    performance = price_analysis.nlargest(8,'Avg_Price')
+
+    plt.barh(performance.index,
+             performance['Avg_Price'])
+
+    plt.xlabel('Average Price')
+    plt.title('Highest Priced Categories')
+
+    plt.tight_layout()
+
+    plt.savefig('amazon_product_analysis.png',dpi=300)
+
+    plt.show()
+
+    print("\n✅ Analysis Completed Successfully!")
+    print("📁 Visualization saved as: amazon_product_analysis.png")
+
+
+# Run Analysis
+amazon_analysis(df)
